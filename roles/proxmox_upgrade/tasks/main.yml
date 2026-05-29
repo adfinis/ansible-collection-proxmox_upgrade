@@ -7,31 +7,31 @@
   run_once: true
 
 - name: List existing nodes
-  community.general.proxmox_node_info:
+  community.proxmox.proxmox_node_info:
     api_host: "{{ proxmox_upgrade_api_hostname }}"
     api_user: "{{ proxmox_api_user }}"
     api_password: "{{ proxmox_api_password | default(omit) }}"
     validate_certs: "{{ proxmox_api_validate_certs | default(true) }}"
-  register: proxmox_nodes
+  register: proxmox_upgrade_nodes
   run_once: true
 
 - name: Fetch all VM information
-  community.general.proxmox_vm_info:
+  community.proxmox.proxmox_vm_info:
     api_host: "{{ proxmox_upgrade_api_hostname }}"
     api_user: "{{ proxmox_api_user }}"
     api_password: "{{ proxmox_api_password | default(omit) }}"
     validate_certs: "{{ proxmox_api_validate_certs | default(true) }}"
     type: qemu
-  register: vm_info
+  register: proxmox_upgrade_vm_info
 
 - name: Create migration plan
   ansible.builtin.set_fact:
-    vm_migration_plan: "{{ vm_info['proxmox_vms'] | adfinis.proxmox_upgrade.migration_plan(proxmox_nodes['proxmox_nodes'], proxmox_upgrade_node_name) }}"
+    proxmox_upgrade_vm_migration_plan: "{{ proxmox_upgrade_vm_info['proxmox_vms'] | adfinis.proxmox_upgrade.migration_plan(proxmox_upgrade_nodes['proxmox_nodes'], proxmox_upgrade_node_name) }}"
   delegate_to: localhost
 
 - name: Show migration plan
   ansible.builtin.debug:
-    var: vm_migration_plan
+    var: proxmox_upgrade_vm_migration_plan
   run_once: true
   delegate_to: localhost
 
@@ -39,30 +39,30 @@
   ansible.builtin.pause:
     prompt: |
       The following VMs will be migrated from {{ proxmox_upgrade_node_name }}:
-      {% for vm_name, target_node in vm_migration_plan.items() %}
+      {% for vm_name, target_node in proxmox_upgrade_vm_migration_plan.items() %}
       - {{ vm_name }} -> {{ target_node }}
       {% endfor %}
 
       Do you want to proceed with the migration? (yes/no)
-  register: migration_confirmation
+  register: proxmox_upgrade_migration_confirmation
   run_once: true
   when:
-    - vm_migration_plan | length > 0
+    - proxmox_upgrade_vm_migration_plan | length > 0
     - proxmox_upgrade_confirm_migration | bool
 
 - name: Validate migration confirmation
   ansible.builtin.assert:
     that:
-      - migration_confirmation.user_input | lower in ['yes', 'y']
+      - proxmox_upgrade_migration_confirmation.user_input | lower in ['yes', 'y']
     fail_msg: "Migration cancelled by user"
     success_msg: "Migration confirmed, proceeding..."
   run_once: true
   when:
-    - vm_migration_plan | length > 0
+    - proxmox_upgrade_vm_migration_plan | length > 0
     - proxmox_upgrade_confirm_migration | bool
 
 - name: Migrate VMs to new node
-  community.general.proxmox_kvm:
+  community.proxmox.proxmox_kvm:
     api_host: "{{ proxmox_upgrade_api_hostname }}"
     api_user: "{{ proxmox_api_user }}"
     api_password: "{{ proxmox_api_password | default(omit) }}"
@@ -72,12 +72,12 @@
     migrate: true
     migrate_downtime: "{{ proxmox_upgrade_migration_downtime }}"
     timeout: "{{ proxmox_upgrade_migration_timeout }}"
-  loop: "{{ vm_migration_plan | dict2items }}"
+  loop: "{{ proxmox_upgrade_vm_migration_plan | dict2items }}"
   run_once: true
   when: >
-    vm_migration_plan | length > 0 and
+    proxmox_upgrade_vm_migration_plan | length > 0 and
     (not proxmox_upgrade_confirm_migration | bool or
-     (migration_confirmation is defined and migration_confirmation.user_input | lower in ['yes', 'y']))
+     (proxmox_upgrade_migration_confirmation is defined and proxmox_upgrade_migration_confirmation.user_input | lower in ['yes', 'y']))
 
 - name: Enable maintenance mode on node
   ansible.builtin.command:
@@ -97,15 +97,15 @@
     search_paths: ['/lib/molly-guard', '/sbin']
 
 - name: Wait for node to come back online
-  community.general.proxmox_node_info:
+  community.proxmox.proxmox_node_info:
     api_host: "{{ proxmox_upgrade_api_hostname }}"
     api_user: "{{ proxmox_api_user }}"
     api_password: "{{ proxmox_api_password | default(omit) }}"
     validate_certs: "{{ proxmox_api_validate_certs | default(true) }}"
-  register: node_info
+  register: proxmox_upgrade_node_info
   vars:
     node_status_query: "proxmox_nodes[?node == '{{ proxmox_upgrade_node_name }}'].status | [0]"
-  until: node_info | community.general.json_query(node_status_query) == 'online'
+  until: proxmox_upgrade_node_info | community.general.json_query(node_status_query) == 'online'
   retries: 100
   delay: 10
 
