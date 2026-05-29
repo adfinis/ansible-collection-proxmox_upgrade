@@ -6,17 +6,17 @@
     state: present
 
 - name: List all running proxmox tasks
-  community.general.proxmox_tasks_info:
+  community.proxmox.proxmox_tasks_info:
     api_host: "{{ inventory_hostname }}"
     api_user: "{{ proxmox_api_user }}"
     api_password: "{{ proxmox_api_password | default(omit) }}"
     validate_certs: "{{ proxmox_api_validate_certs | default(true) }}"
     node: "{{ precheck_node_name }}"
-  register: proxmox_tasks
+  register: precheck_proxmox_tasks
 
 - name: Make sure no task is running
   ansible.builtin.assert:
     that:
       - item.endtime is defined
     msg: "Task {{ item.id }} is still running. Make sure no task is running before upgrading."
-  loop: "{{ proxmox_tasks['proxmox_tasks'] }}"
+  loop: "{{ precheck_proxmox_tasks['proxmox_tasks'] }}"

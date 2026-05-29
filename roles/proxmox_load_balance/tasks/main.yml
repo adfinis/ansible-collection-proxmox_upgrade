@@ -1,64 +1,64 @@
 ---
 - name: Fetch current cluster state for load balancing
-  community.general.proxmox_node_info:
+  community.proxmox.proxmox_node_info:
     api_host: "{{ proxmox_load_balance_api_hostname }}"
     api_user: "{{ proxmox_api_user }}"
     api_password: "{{ proxmox_api_password | default(omit) }}"
     validate_certs: "{{ proxmox_api_validate_certs | default(true) }}"
-  register: cluster_nodes
+  register: proxmox_load_balance_cluster_nodes
   run_once: true
 
 - name: Fetch all VM information for load balancing
-  community.general.proxmox_vm_info:
+  community.proxmox.proxmox_vm_info:
     api_host: "{{ proxmox_load_balance_api_hostname }}"
     api_user: "{{ proxmox_api_user }}"
     api_password: "{{ proxmox_api_password | default(omit) }}"
     validate_certs: "{{ proxmox_api_validate_certs | default(true) }}"
     type: qemu
-  register: cluster_vm_info
+  register: proxmox_load_balance_cluster_vm_info
   run_once: true
 
 - name: Create cluster load balancing plan
   ansible.builtin.set_fact:
-    cluster_load_balance_plan: "{{ cluster_vm_info['proxmox_vms'] | adfinis.proxmox_upgrade.load_balance_plan(cluster_nodes['proxmox_nodes']) }}"
+    proxmox_load_balance_cluster_load_balance_plan: "{{ proxmox_load_balance_cluster_vm_info['proxmox_vms'] | adfinis.proxmox_upgrade.load_balance_plan(proxmox_load_balance_cluster_nodes['proxmox_nodes']) }}"
   run_once: true
   delegate_to: localhost
 
 - name: Show cluster load balancing plan
   ansible.builtin.debug:
-    var: cluster_load_balance_plan
+    var: proxmox_load_balance_cluster_load_balance_plan
   run_once: true
   delegate_to: localhost
-  when: cluster_load_balance_plan | length > 0
+  when: proxmox_load_balance_cluster_load_balance_plan | length > 0
 
 - name: Confirm load balancing migration
   ansible.builtin.pause:
     prompt: |
       The following VMs will be migrated for load balancing:
-      {% for vm_name, migration_info in cluster_load_balance_plan.items() %}
+      {% for vm_name, migration_info in proxmox_load_balance_cluster_load_balance_plan.items() %}
       - {{ vm_name }}: {{ migration_info.source_node }} -> {{ migration_info.target_node }}
       {% endfor %}
 
       Do you want to proceed with the load balancing migration? (yes/no)
-  register: load_balance_confirmation
+  register: proxmox_load_balance_load_balance_confirmation
   run_once: true
   when:
-    - cluster_load_balance_plan | length > 0
+    - proxmox_load_balance_cluster_load_balance_plan | length > 0
     - proxmox_load_balance_confirm_migration | bool
 
 - name: Validate load balancing confirmation
   ansible.builtin.assert:
     that:
-      - load_balance_confirmation.user_input | lower in ['yes', 'y']
+      - proxmox_load_balance_load_balance_confirmation.user_input | lower in ['yes', 'y']
     fail_msg: "Load balancing migration cancelled by user"
     success_msg: "Load balancing migration confirmed, proceeding..."
   run_once: true
   when:
-    - cluster_load_balance_plan | length > 0
+    - proxmox_load_balance_cluster_load_balance_plan | length > 0
     - proxmox_load_balance_confirm_migration | bool
 
 - name: Execute cluster load balancing migrations
-  community.general.proxmox_kvm:
+  community.proxmox.proxmox_kvm:
     api_host: "{{ inventory_hostname }}"
     api_user: "{{ proxmox_api_user }}"
     api_password: "{{ proxmox_api_password | default(omit) }}"
@@ -68,9 +68,9 @@
     migrate: true
     migrate_downtime: "{{ proxmox_load_balance_migration_downtime }}"
     timeout: "{{ proxmox_load_balance_migration_timeout }}"
-  loop: "{{ cluster_load_balance_plan | dict2items }}"
+  loop: "{{ proxmox_load_balance_cluster_load_balance_plan | dict2items }}"
   run_once: true
   when: >
-    cluster_load_balance_plan | length > 0 and
+    proxmox_load_balance_cluster_load_balance_plan | length > 0 and
     (not proxmox_load_balance_confirm_migration | bool or
-     (load_balance_confirmation is defined and load_balance_confirmation.user_input | lower in ['yes', 'y']))
+     (proxmox_load_balance_load_balance_confirmation is defined and proxmox_load_balance_load_balance_confirmation.user_input | lower in ['yes', 'y']))
